@@ -2505,21 +2505,26 @@ function placeCove(halfW, halfH) {
   cove.rotation.x = -0.42;             // tips the ground's normal up toward the camera
   cove.scale.set(s * 22, s * 22, 1);   // every edge well outside the frame
   cove.position.set(0, -s * 0.05, -s * groundDist);
+  fitFar(halfH);
+}
 
-  /* The ground recedes as it climbs the frame, so its top edge is the deepest
-     thing on screen, and it has to stay inside the camera's far plane. That
-     plane was a fixed 4000 while the ground's depth grows with the window: past
-     about 2450px wide (at 890 tall) the top of the ground was clipped away, and the page
-     colour showed through above a dead straight line, which is exactly the
-     horizon limbo must not have. So the far plane follows the same numbers
-     that place the ground (the camera sits at z=1000), with a tenth spare, and
-     never shrinks below the 4000 every smaller window was tuned on. */
-  if (camera) {
-    const deepest = 1000 + s * (groundDist + 0.05) + Math.tan(-cove.rotation.x) * halfH;
-    camera.far = Math.max(4000, Math.ceil(deepest * 1.1));
-    camera.updateProjectionMatrix();
-    aoUniforms.uFar.value = blurUniforms.uFar.value = camera.far;
-  }
+/* The ground recedes as it climbs the frame, so its top edge is the deepest
+   thing on screen, and it has to stay inside the camera's far plane. That plane
+   was a fixed 4000 while the ground's depth grows with the window: past about
+   2450px wide (at 890 tall) the top of the ground was clipped away, and the
+   page colour showed through above a dead straight line, which is exactly the
+   horizon limbo must not have. So the far plane is read off where the ground
+   actually is (the camera sits at z=1000), with a tenth spare, and never
+   shrinks below the 4000 every smaller window was tuned on. Reading the real
+   position rather than re-deriving it is what lets compose, which places the
+   ground its own way, share this unchanged. */
+function fitFar(halfH) {
+  if (!camera) return;
+  const climb = Math.tan(-cove.rotation.x) * (halfH - cove.position.y);
+  const deepest = 1000 - cove.position.z + climb;
+  camera.far = Math.max(4000, Math.ceil(deepest * 1.1));
+  camera.updateProjectionMatrix();
+  aoUniforms.uFar.value = blurUniforms.uFar.value = camera.far;
 }
 
 /* ---------- ambient occlusion ----------
