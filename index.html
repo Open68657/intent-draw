@@ -1964,7 +1964,17 @@ function applyFinish(mat, F, scale) {
 /* ---------- scene ---------- */
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+/* Every pass here (shadow, occlusion, glass, caustics) is paid per pixel, so the
+   cost of a frame follows the window's area, not the sculpture. A laptop screen
+   at 2x is about 6 million pixels and that is where this was tuned; a 2600px
+   window at 2x is nearly 9.3 million, and drawing slowed down to match. So the
+   ratio is held to that budget: a normal window still gets the full 2x, a very
+   wide one trades a little sharpness for the speed it had on the laptop, and
+   nothing ever drops below 1x. sizeUp() re-applies it on every resize. */
+const PIXEL_BUDGET = 6.0e6;
+const renderRatio = (w, h) =>
+  Math.min(devicePixelRatio, 2, Math.max(1, Math.sqrt(PIXEL_BUDGET / (w * h))));
+renderer.setPixelRatio(renderRatio(innerWidth, innerHeight));
 /* Filmic response. Without it every highlight clips straight to pure white the
    moment it passes 1.0, which is the flat blown-out dot that reads as "computer
    graphics" rather than a lit surface. ACES rolls the top end off the way film
@@ -1998,6 +2008,8 @@ world.add(pile);                      // `world`, since the pivot is what moves
 let camera, VIEW = 1;      // world units per pixel
 function sizeUp() {
   const w = innerWidth, h = innerHeight;
+  const pr = renderRatio(w, h);
+  renderer.setPixelRatio(pr);
   renderer.setSize(w, h);
   const halfH = h / 2 * VIEW, halfW = w / 2 * VIEW;
   if (!camera) {
@@ -2029,7 +2041,6 @@ function sizeUp() {
   aoUniforms.uHalf.value.set(halfW, halfH);
   aoUniforms.uNear.value = blurUniforms.uNear.value = camera.near;
   aoUniforms.uFar.value = blurUniforms.uFar.value = camera.far;
-  const pr = Math.min(devicePixelRatio, 2);
   makeTargets(w * pr, h * pr);
 }
 
@@ -2494,6 +2505,21 @@ function placeCove(halfW, halfH) {
   cove.rotation.x = -0.42;             // tips the ground's normal up toward the camera
   cove.scale.set(s * 22, s * 22, 1);   // every edge well outside the frame
   cove.position.set(0, -s * 0.05, -s * groundDist);
+
+  /* The ground recedes as it climbs the frame, so its top edge is the deepest
+     thing on screen, and it has to stay inside the camera's far plane. That
+     plane was a fixed 4000 while the ground's depth grows with the window: past
+     about 2450px wide (at 890 tall) the top of the ground was clipped away, and the page
+     colour showed through above a dead straight line, which is exactly the
+     horizon limbo must not have. So the far plane follows the same numbers
+     that place the ground (the camera sits at z=1000), with a tenth spare, and
+     never shrinks below the 4000 every smaller window was tuned on. */
+  if (camera) {
+    const deepest = 1000 + s * (groundDist + 0.05) + Math.tan(-cove.rotation.x) * halfH;
+    camera.far = Math.max(4000, Math.ceil(deepest * 1.1));
+    camera.updateProjectionMatrix();
+    aoUniforms.uFar.value = blurUniforms.uFar.value = camera.far;
+  }
 }
 
 /* ---------- ambient occlusion ----------
